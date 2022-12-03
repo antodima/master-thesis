@@ -1,0 +1,90 @@
+\chapter{Data Preparation}\label{chapter:dataset}
+
+In this Chapter are described the WESAD Dataset \cite{schmidt2018introducing} for stress prediction in Section \ref{sec:wesad}, and the pre-processing phase in Section \ref{sec:data_preproc} in order to  increasing the ESNs stress prediction performances.
+
+
+\section{WESAD Dataset}\label{sec:wesad}
+
+Affect recognition aims to detect a person’s affective state based on observables, with the goal to improve human-computer interaction. WESAD is a publicly available dataset for wearable stress and affect detection. This multimodal dataset features physiological and motion data, recorded from both a wrist/chest-worn device, of 15 subjects during a lab study. For our purposes, we consider the chest device data, and specifically the Electrodermal Activity (EDA), sampled at 4HZ, and the Blood Volume Pulse (BVP), sampled at 64 Hz. The signals are associated to specific label:
+
+\begin{itemize}
+    \item Baseline
+    \item Stress
+    \item Amusement
+    \item Meditation
+\end{itemize}
+
+We want to solve the binary classification problem of predicting if a user is stressed or not. So, the signals associated to labels different from \textit{Stress}, are considered as "Not Stressed" (associated to the integer value 0), the other signals associated to the label \textit{Stress}, obviously, are considered as "Stressed" (associated to the integer value 1).
+
+
+\section{Data Preprocessing}\label{sec:data_preproc}
+
+The Data pre-processing phase starts from EDA and BVP signals of the 15 subjects. In the initial phase it is used the NeuroKit2 library\footnote{\url{https://github.com/neuropsychology/NeuroKit}}, a Python Toolbox for Neurophysiological Signal Processing. The EDA signals are cleaned using the function \hltexttt{eda\_clean}\footnote{\url{https://neuropsychology.github.io/NeuroKit/functions/eda.html#neurokit2.eda.eda_clean}}. The BVP signal, instead, could be considered similar to Photoplethysmogram (PPG) signal (used to detect blood volume changes in the microvascular bed of tissue), and for this reason it is cleaned using the function \hltexttt{ppg\_clean}\footnote{\url{https://neuropsychology.github.io/NeuroKit/functions/ppg.html#neurokit2.ppg.ppg_clean}}. \\
+
+In the second phase, from the EDA signals are extracted another two features: EDA Thonic (tEDA) and EDA Phasic (pEDA); this is done using the function \hltexttt{eda\_phasic}\footnote{\url{https://neuropsychology.github.io/NeuroKit/functions/eda.html#neurokit2.eda.eda_phasic}}. Consequently, the BVP signals are used to find the PPG peaks by using the function \hltexttt{ppg\_findpeaks}\footnote{\url{https://neuropsychology.github.io/NeuroKit/functions/ppg.html#neurokit2.ppg.ppg_findpeaks}}. The peaks are used to extract the Heart Rate (HR), using the function \hltexttt{ppg\_rate}\footnote{\url{https://neuropsychology.github.io/NeuroKit/functions/signal.html#signal-rate}}. The peaks are used also to compute the Heart Rate Variability (HRV), that is done using the function \hltexttt{hrv\_time}\footnote{\url{https://neuropsychology.github.io/NeuroKit/functions/hrv.html#neurokit2.hrv.hrv_time}} applied to a sliding window on the PPG peaks signal. The sliding windows considered are of the length of: 5, 25 and 50, and it is multiplied by 64 (the sampling frequency of BVP/PPG) in order to consider a timing of seconds. \\
+
+The result of the previous phases, results in a definition of 3 different dataset (one for each sliding window) with the following fields for each subject:
+
+\begin{enumerate}
+    \item tEDA: EDA Thonic
+    \item pEDA: EDA Phasic
+    \item HR: Heart Rate
+    \item HRV: Heart Rate Variability (sliding window $\in \{5, 25, 50\}$)
+    \item Label: Stressed or Not Stressed (1 or 0).
+\end{enumerate}
+
+The statistics of the dataset after the second phase are shown in Table \ref{tab:data_1}.
+
+{\renewcommand{\arraystretch}{1.5}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c|c|c|c|c|}
+        \hline
+        Feature & Min & Max & Mean & Var \\ \hline\hline
+        pEDA & -4.4867 & 5.8884 & -0.0140 & 0.9325 \\ \hline
+        tEDA & 0.1639 & 9.6628 & 1.8536 & 4.3981 \\ \hline
+        HR & 0.4868 & 192.0000 & 77.7142 & 770.1333 \\ \hline
+        HRV & 12.9829 & 386.3441 & 45.8408 & 3245.0130 \\ \hline
+    \end{tabular}
+    \caption{Dataset statistics of the extracted features with a sliding window of $25\times 64$. Percentage of samples: label "0": 88.53\%, label "1": 11.47\%}
+    \label{tab:data_1}
+\end{table}
+
+The third phase consists in resampling the signals with respect to the shortest one for each subject, this is done using the function \hltexttt{signal\_resample}\footnote{\url{https://neuropsychology.github.io/NeuroKit/functions/signal.html#neurokit2.signal_resample}}. Next, the signals of each subject are standardized with respect to its own baseline, in order to recenter the signals in an interval more appropriate for the ESN, this is done using the \hltexttt{StandardScaler}\footnote{\url{https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.StandardScaler.html}} of the \hltexttt{sklearn}\footnote{\url{https://scikit-learn.org}} library.
+
+The statistics of the standardized dataset after the third phase are shown in Table \ref{tab:data_2}.
+
+{\renewcommand{\arraystretch}{1.5}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c|c|c|c|c|}
+        \hline
+        Feature & Min & Max & Mean & Var \\ \hline\hline
+        pEDA & -46.4578 & 134.4446 & 0.9768 & 133.8697 \\ \hline
+        tEDA & -11.2772 & 67.8104 & 4.6638 & 139.6957 \\ \hline
+        HR & -4.9910 & 7.4297 & 0.1300 & 1.6040 \\ \hline
+        HRV & -3.3037 & 92.1442 & 3.9575 & 108.4837 \\ \hline
+    \end{tabular}
+    \caption{Dataset statistics of the standardized features with a sliding window of $25\times 64$. Percentage of samples: label "0": 88.57\%, label "1": 11.43\%}
+    \label{tab:data_2}
+\end{table}
+
+The last phase is a normalization of the features with an online moving average. The statistics of the normalized dataset are shown in Table \ref{tab:data_3}.
+
+
+{\renewcommand{\arraystretch}{1.5}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c|c|c|c|c|}
+        \hline
+        Feature & Min & Max & Mean & Var \\ \hline\hline
+        pEDA & -2.9826 & 6.8522 & 0.6837 & 2.4992 \\ \hline
+        tEDA & -20053.9745 & 12748.3417 & 0.6757 & 8039.7497 \\ \hline
+        HR & -278.8295 & 537.7899 & 1.1065 & 264.5812 \\ \hline
+        HRV & -4.5778 & 21.5005 & 1.1469 & 7.9482 \\ \hline
+    \end{tabular}
+    \caption{Dataset statistics of the normalized features with moving average with a sliding window of $25\times 64$. Percentage of samples: label "0": 88.57\%, label "1": 11.43\%}
+    \label{tab:data_3}
+\end{table}
+
+The last dataset contains $\sim 6000$ samples for each subject and it is the one used for the Experimental phase in Chapter \ref{chapter:experiments}.

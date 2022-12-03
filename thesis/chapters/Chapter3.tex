@@ -1,0 +1,243 @@
+\chapter{Federated Curvature for Echo State Networks}\label{chapter:fedcurv}
+
+In this Chapter are described the federated settings and the implementation details of the Federated Curvature (\texttt{FedCurv}) algorithm applied to the ESN, following the theoretical aspects explained in Section \ref{sec:fedcurv}. \\
+
+The Federated Learning scenario of the ESNs starts initializing the server ESN model parameters $\textbf{W}_{in}\in \mathbb{R}^{N_x\times N_u}$, $\widehat{\textbf{W}}\in \mathbb{R}^{N_x\times N_x}$, $\textbf{W}\in \mathbb{R}^{N_y\times N_x}$, $u_{server}\in \mathbb{R}^{N_y\times N_x}$ and $v_{server}\in \mathbb{R}^{N_y\times N_x}$; $N_x$ is the number of reservoir neurons, $N_u$ is the input dimension, $N_y$ is the output dimension, $u_{server}$ and $v_{server}$ are, respectively, the importance of the \textbf{W} parameters for the task at time $t$ and the importance of the same parameters at time $t-1$. We focus our attention on \textbf{W} because they are the only parameters trained in the learning process. \\
+
+The clients ESN models have the same structure of the server, the clients models parameters could be initialized as the same of the server parameters or differently from the server. \\
+
+After the initialization of the federated nodes, the server broadcasts to the clients the \textbf{W}, $u_{server}$ and $v_{server}$ parameters; $u_{server}$ and $v_{server}$ are initialized as zero tensors at the beginning. For each batch of local data and for each round, each client computes predictions ($\textbf{y}(t)$) on that data. The outputs are used to penalize the local client parameters that goes too far from the previous task, and so from \textbf{W} received from the server. To do so, we compute the gradient of the log-likelihood of the predictions with respect to the \textbf{W} parameters. The gradient is computed as $\frac{\partial log(softmax(\textbf{y}(t)))}{\partial w}$ and it is squared and normalized by the length of the batch of data in order to get our approximation of the diagonal of the Fisher matrix; This tells us the importance of each parameter. \\
+
+After computing the Fisher diagonal ($\mathcal{D}$), we need to penalize the client for going "far from the server". To do so each client considers $u=\mathcal{D}$ and $v=\mathcal{D}\times \textbf{W}$, but in order to penalize with respect to the importance of the other clients, we need to subtract $u$ and $v$, respectively, from $u_{server}$ and $v_{server}$; so $u_{client}=u_{server}-u$ and $v_{client}=v_{server}-v$. The penalty term is computed as $\lambda= sum(\textbf{W}^2\times u_{local}-2\times \textbf{W}\times v_{local})$ (as shown in Eq. \ref{eq:fedcurv_obj}) and added to the loss function to perform the optimization step and compute the $\textbf{W}_{client}$ parameters.  \\
+
+After updating the client parameters, each client broadcast to the server it's own  $\textbf{W}_{client}$, $u_{client}$ and $v_{client}$. The server assign to \textbf{W} the average of the $\textbf{W}_{client}$ received from the clients and it updates $u_{server}$ and $v_{server}$, respectively, summing the $u_{client}$ and $v_{client}$ received from the clients. \\
+
+The pseudo-code of the \texttt{FedCurv} algorithm is shown in Alg. \ref{alg:fedcurv}. \\
+
+
+\algrenewcommand\algorithmicfunction{}
+\algrenewcommand\textproc{}
+\begin{algorithm}[H]
+\caption{\texttt{FedCurv}. The $K$ clients are indexed by $k$; $B$ is the local minibatch size, $E$ is the number of local epochs, and $\eta$ is the learning rate. Each client has the reservoir parameter $\textbf{W}_{in}$ and $\widehat{\textbf{W}}$, $\alpha$ is the leaky rate, $N_y$ is the output dimension and $N_x$ is the number of reservoir neurons.}\label{alg:fedcurv}
+\begin{algorithmic}[1]
+\Function{\textbf{ServerUpdate}}{}
+    \State let $w_0, u_0, v_0\in \mathbb{R}^{N_y\times N_x}$
+    \For{\texttt{each round $t=1,2,\dots$}}
+        \State $m\leftarrow \max(C\cdot K, 1)$
+        \State $S_t\leftarrow \text{(random set of $m$ clients)}$
+        \For{\texttt{each client $k\in S_t$}}
+            \State $w_{t+1}^k, u_{t+1}^k, v_{t+1}^k\leftarrow$ \text{ClientUpdate($k$, $w_t$, $u_t$, $v_t$)}
+        \EndFor
+        \State $w_{t+1}\leftarrow \sum_{k=1}^K\frac{n_k}{n}w_{t+1}^k$
+        \State $u_{t+1}\leftarrow \sum_{k=1}^K u_{t+1}^k$
+        \State $v_{t+1}\leftarrow \sum_{k=1}^K v_{t+1}^k$
+    \EndFor
+\EndFunction
+\\
+\Function{\textbf{ClientUpdate}}{$k$, $w$, $u$, $v$}
+    \State let $u_{local}, v_{local}\in \mathbb{R}^{N_y\times N_x}$
+    \State $\mathcal{B}\leftarrow \text{(split $\mathcal{P}_k$ into batches of size $B$)}$
+    \For{\texttt{$i$ from $1$ to $E$}}
+        \For{\text{batch $b\in \mathcal{B}$}}
+            \State $\textbf{x}(t)=(1-\alpha)\textbf{x}(t-1)+\alpha \tanh(\textbf{W}_{in}b+\widehat{\textbf{W}}\textbf{x}(t-1))$
+            \State $\textbf{y}(t)\leftarrow sigmoid(w\textbf{x}(t))$
+            \State $\nabla\mathcal{LL}_b\leftarrow\frac{\partial log(softmax(\textbf{y}(t)))}{\partial w}$ \Comment{Log-likelihood gradient}
+            \State $\mathcal{D}_b\leftarrow\frac{(\nabla\mathcal{LL}_b)^{2}}{length(b)}$ \Comment{Diagonal of the Fisher matrix}
+            \State $u_b\leftarrow\mathcal{D}_b$
+            \State $v_b\leftarrow\mathcal{D}_b\times w$
+            \State $u_{local} \leftarrow u-u_b$
+            \State $v_{local} \leftarrow v-v_b$
+            \State $\lambda\leftarrow sum(w^2\times u_{local}-2\times w\times v_{local})$ \Comment{Penalty term}
+            \State $w\leftarrow w-\eta\nabla[\ell(w;b)+\lambda]$
+        \EndFor
+    \EndFor
+    \Return $w, u_{local}, v_{local}$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+The diagram of the federated process with the elements exchanged by clients and server is shown in Fig. \ref{fig:fedcurv}.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[scale=2]
+  \draw[line width=0pt]
+    (2,2) node[draw] (s) {server}
+    (0,0)  node[draw] (c1) {client $c_1$}
+    (4,0)  node[draw] (cn) {client $c_n$}
+    (2,0)  node[draw=none] (d) {$\dots$};
+
+  \draw[->] (2,1)--(c1.north east);
+  \draw[->] (2,1)--(cn.north west);
+  \draw (2,1)-- node[right] {$\textbf{W},u,v$} (s);
+  \draw[->] (c1.north)-- node[left] {$\textbf{W}_{c_1},u_{c_1},v_{c_1}$} (0,2)--(s.west);
+  \draw[->] (cn.north)-- node[right] {$\textbf{W}_{c_n},u_{c_n},v_{c_n}$} (4,2)--(s.east);
+\end{tikzpicture}
+\caption{Federated Curvature Scheme. Each client $c$ sends their local matrix $\textbf{W}_c$, $u_c$ and $v_c$ to the server. After the aggregation of the models is performed in the form of a weighted average of the $\textbf{W}_c$, the sum of the $u_c$ and the sum of the $v_c$, the server sends back the same parameters $\textbf{W}$, $u$ and $v$ to all clients.\\}
+\label{fig:fedcurv}
+\end{figure}
+
+
+The implementation has be done using Tensorflow-Federated (TFF) framework\footnote{\url{https://www.tensorflow.org/federated}} due to the natural compatibility with Tensorflow (TF) framework\footnote{\url{https://www.tensorflow.org/}} that it is used for the models implementations. TFF is an open-source framework for machine learning and other computations on decentralized data and has been developed to facilitate open research and experimentation with FL. A research FL simulation implemented in TFF typically consists of three main types of logic:
+
+\begin{enumerate}
+    \item Individual pieces of TF  code, typically \hltexttt{tf.function}\footnote{\url{https://www.tensorflow.org/api_docs/python/tf/function}}, that encapsulate logic that runs in a single location (e.g., on clients or on a server). This code is typically written and tested without any \hltexttt{tff.*} references, and can be re-used outside of TFF
+    
+    \item TFF orchestration logic, which binds together the individual \hltexttt{tf.function} from 1) by wrapping them as \hltexttt{tff.tf\_computation}\footnote{\url{https://www.tensorflow.org/federated/api_docs/python/tff/tf_computation}} and then orchestrating them using abstractions like \hltexttt{tff.federated\_broadcast}\footnote{\url{https://www.tensorflow.org/federated/api_docs/python/tff/federated_broadcast}} and \hltexttt{tff.federated\_mean}\footnote{\url{https://www.tensorflow.org/federated/api_docs/python/tff/federated_mean}} inside a \hltexttt{tff.federated\_computation}
+    
+    \item An outer driver script that simulates the control logic of a production FL system, selecting simulated clients from a dataset and then executing federated computations defined in 2).
+\end{enumerate}
+
+
+For the basic \texttt{FedAvg} algorithm we use the \\ \hltexttt{tff.learning.build\_federated\_averaging\_process} built-in function. It uses the \hltexttt{model\_fn} function to initialize the server and clients models, the \hltexttt{client\_optimizer\_fn} to update the clients and \hltexttt{server\_optimizer\_fn} to update the server. Then, an initial state is instantiated and updated at each round. The \texttt{FedAvg} iterative process is shown in Listing \ref{code:fedavg_iter_proc}. \\
+
+
+\begin{lstlisting}[caption={Example code of the TFF iterative process for \texttt{FedAvg}.},label={code:fedavg_iter_proc},language=Python]
+import tensorflow as tf
+import tensorflow_federated as tff
+
+fedavg_iter_process = tff.learning.build_federated_averaging_process(
+        model_fn,
+        client_optimizer_fn,
+        server_optimizer_fn)
+        
+state = fedavg_iter_process.initialize()
+
+for round in range(NUM_ROUNDS):
+    state = fedavg_iter_process.next(state, training_dataset)
+\end{lstlisting}
+
+
+Concerning the \texttt{FedCurv} algorithm, there isn't a build-in function in TFF, so the iterative process has been done from scratch, that is shown in Listing \ref{code:fedcurv_iter_proc}.
+
+
+\begin{lstlisting}[caption={Example code of the TFF iterative process for \texttt{FedCurv}.},label={code:fedcurv_iter_proc},language=Python]
+import tensorflow as tf
+import tensorflow_federated as tff
+
+fedcurv_iter_process = tff.templates.IterativeProcess(
+      initialize_fn=server_init_tff,
+      next_fn=next_fn)
+      
+state = fedcurv_iter_process.initialize()
+
+for round in range(NUM_ROUNDS):
+    state = fedcurv_iter_process.next(state, training_dataset)
+\end{lstlisting}
+
+
+In the \hltexttt{next\_fn} function are executed the \hltexttt{ServerUpdate} and \hltexttt{ClientUpdate} functions of the Alg. \ref{alg:fedcurv}. In Listing \ref{code:fedcurv_next_fn} there is the implementation of the \hltexttt{next\_fn} that is the central point of the parameters dispatching from server to clients and vice versa. In the \hltexttt{next\_fn} the server parameters are broadcasted to each clients and used to update the clients by using the \hltexttt{client\_update\_fn} function; then the clients parameters are collected and aggregated and send to the server for updating by the use of \hltexttt{server\_update\_fn}. \\
+
+
+\begin{lstlisting}[caption={TFF implementation of the next\_fn of \texttt{FedCurv}.},label={code:fedcurv_next_fn},language=Python]
+@tff.federated_computation(federated_server_type, federated_dataset_type)
+  def next_fn(server_state, federated_dataset):
+    # Broadcast the server weights to the clients.
+    server_state_at_client = tff.federated_broadcast(server_state)
+    server_weights_at_client = server_state_at_client.trainable_weights
+    u_global_at_client = server_state_at_client.u_global
+    v_global_at_client = server_state_at_client.v_global
+    # Local client update.
+    model_deltas, u_locals, v_locals = tff.federated_map(
+        client_update_fn, 
+        (federated_dataset, server_weights_at_client, u_global_at_client, v_global_at_client))
+    # Client-to-server upload and aggregation.
+    mean_model_delta = tff.federated_mean(model_deltas)
+    u_sum = tff.federated_sum(u_locals)
+    v_sum = tff.federated_sum(v_locals)
+    # Server update.
+    server_state = tff.federated_map(
+        server_update_fn, (server_state, mean_model_delta, u_sum, v_sum))
+    return server_state
+\end{lstlisting}
+
+The \hltexttt{client\_update\_fn} and \hltexttt{server\_update\_fn} are shown, respectively, in Listing \ref{code:client_update_fn} and \ref{code:server_update_fn}. \\
+
+
+\begin{lstlisting}[caption={TFF implementation of the client\_update\_fn of \texttt{FedCurv}.},label={code:client_update_fn},language=Python]
+@tf.function
+  def client_update(model, dataset, server_weights, server_u, server_v):
+    fish_tmp = [tf.zeros_like(tensor) for tensor in model.trainable_variables]
+    u_local = [tf.zeros_like(tensor) for tensor in server_u]
+    v_local = [tf.zeros_like(tf.multiply(f, w)) for f,w in zip(fish_tmp, server_v)]
+    client_weights_old = [tf.zeros_like(tensor) for tensor in model.trainable_variables]
+    client_weights_new = [tf.zeros_like(tensor) for tensor in model.trainable_variables]
+    updated_weights = [tf.zeros_like(tensor) for tensor in model.trainable_variables]
+    
+    client_weights_old = model.trainable_variables
+    client_weights_new = model.trainable_variables
+    updated_weights = model.trainable_variables
+    
+    for batch in iter(dataset):
+      fish_diag = fisher_matrix(model, batch)
+      u_local = [fim for fim in fish_diag]
+      v_local = [tf.multiply(fim, w_old) for fim, w_old in zip(fish_diag, client_weights_old)]
+      penalty = compute_penalty(batch, client_weights_new, server_u, server_v, u_local, v_local)
+      
+      with tf.GradientTape() as tape:
+        outputs = model.forward_pass(batch)
+        loss = outputs.loss + penalty
+        grads = tape.gradient(loss, model.trainable_variables)
+        optimizer_state, updated_weights = client_optimizer.next(optimizer_state, client_weights_new, grads)
+      
+      client_weights_old = client_weights_new
+      client_weights_new = updated_weights
+    return tf.nest.map_structure(tf.subtract, client_weights_new, server_weights), u_local, v_local
+\end{lstlisting}
+
+\begin{lstlisting}[caption={TFF implementation of the server\_update\_fn of \texttt{FedCurv}.},label={code:server_update_fn},language=Python]
+@tf.function
+  def server_update(server_state, mean_model_delta, u_sum, v_sum):
+    negative_weights_delta = tf.nest.map_structure(lambda w: -1.0 * w, mean_model_delta)
+    new_optimizer_state, updated_weights = server_optimizer.next(
+        server_state.optimizer_state, server_state.trainable_weights, 
+        negative_weights_delta)
+    
+    return tff.structure.update_struct(
+        server_state,
+        model=tff.learning.ModelWeights(
+            trainable=updated_weights,
+            non_trainable=server_state.model.non_trainable
+        ),
+        trainable_weights=updated_weights,
+        optimizer_state=new_optimizer_state,
+        u_global=u_sum,
+        v_global=v_sum)
+\end{lstlisting}
+
+
+The two essential components of \texttt{FedCurv} are the computation of the diagonal of the Fisher Information matrix and the computation of the penalty term. Concerning the computation of the Fisher Information matrix, this is shown in Listing \ref{code:fim}.
+
+
+\begin{lstlisting}[caption={Code for the computation of the diagonal of the Fisher Information matrix.},label={code:fim},language=Python]
+import tensorflow as tf
+import tensorflow_federated as tff
+
+def fisher_diag(model, batch):
+  weights = model.trainable_variables
+  n_samples = len(batch)
+  fisher_diagonal = [tf.zeros_like(tensor) for tensor in weights]
+  with tf.GradientTape() as tape:
+    output = model.forward_pass(batch).predictions
+    log_likelihood = tf.nn.log_softmax(output)
+    gradients = tape.gradient(log_likelihood, weights)
+  fisher_diagonal = [(grad**2)/n_samples for grad in gradients]
+  return fisher_diagonal
+\end{lstlisting}
+
+
+Instead, the computation of the penalty term is shown in Listing \ref{code:penalty}.
+
+
+\begin{lstlisting}[caption={Code for the computation of the penalty term.},label={code:penalty},language=Python]
+import tensorflow as tf
+import tensorflow_federated as tff
+
+def compute_penalty(weights, u_global, v_global, u_local, v_local):
+  penalty = 0.
+  for w, u_g, v_g, u_l, v_l in zip(weights, u_global, v_global, u_local, v_local):
+      u = u_g - u_l
+      v = v_g - v_l
+      penalty += tf.reduce_sum((w**2)*u - 2*w*v)
+  return 1e-4*penalty
+\end{lstlisting}

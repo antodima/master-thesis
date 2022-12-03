@@ -1,0 +1,22 @@
+\chapter{Conclusions}\label{chapter:conclusions}
+
+Echo State Networks are the state-of-the-art Recurrent Neural Networks for signal processing. It is suitable for a federated setting scenarios because, from the mathematically point of view, the aggregated model is the same of the model learned using the whole dataset \cite{bacciu2021federated}. \\
+
+Echo State Networks are also appropriate for tackling the problem of offloading data coming from data collected by edge devices and connection efficiency among network nodes in data exchanges. The only parameters exchanged among nodes are the \textit{readout} weights. \\
+
+The Echo State Network model trained on the WESAD dataset outperforms the state-of-the-art model, even if they face two slightly different tasks. \\
+
+In the experimental results the classical \texttt{FedAvg} and \texttt{FedCurv} with a learning rate of \texttt{0.1}, have the same performances, nevertheless, \texttt{FedCurv} has more increasing monotone performances then \texttt{FedAvg} and so it is more reliable at a certain time step. \\
+
+The second part of the experimental results shows us how a simple Federated Learning algorithm as \texttt{FedAvg} in combination with a simple anomalous client discriminator, is able to overcome the central model performances.
+
+
+\section{Future Works}
+
+The use of Tensorflow-Federated is not suitable for extremely customized Federated Learning algorithm. The inclusion of the discriminator in the FL algorithms was a little bit tricky. As future work, the creation of a federated learning framework could be done in order to compare and customize different FL algorithms. \\
+
+In this Work we adapt the \texttt{FedCurv} algorithm to ESNs using the federated optimization technique of the  Tensorflow-Federated framework.\\
+
+As future work, we can adapt \texttt{FedCurv} to ESNs using closed form solutions for the readout adaptation (as in Bacciu et al. \cite{bacciu2021federated}). We developed a preliminary version of this approach, namely \texttt{Partial IncFed}, whose details and first experiments are described in Appendix \ref{chapter:appendix_b}. The preliminary results shows as the method has a better generalization capability than \texttt{IncFed} and contextually reducing the communication cost.\\
+
+Given the good potential showed by such approach, in the future we aim to explore other methodologies to select the most important neurons and reduce the communication cost. A candidate for such purpose is SVD, which allows to select the principal components of the spaces spanned by A and B, thus reducing their dimensionality.

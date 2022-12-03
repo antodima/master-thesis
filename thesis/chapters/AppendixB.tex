@@ -1,0 +1,197 @@
+\chapter{Partial Incremental Federated Learning}\label{chapter:appendix_b}
+
+In this Chapter are shown the preliminary results of a novel approach called \textit{Partial Incremental Federated Learning} (\texttt{Partial IncFed}). This algorithm is an importance-based method that aims to reduce the cost of communication among clients and server in a federated learning scenario.
+
+\section{Incremental Federated Learning}
+
+\textit{Incremental Federated Learning} (\texttt{IncFed}) algorithm exploits the training characteristics of ESNs to obtain an optimal form of federated learning.\\
+
+In the end-to-end training scheme of an ESN, the input sequences from the training dataset are fed to the reservoir. Then, the relevant states on which the network must learn to perform predictions are collected column-wise into a matrix $\textbf{S}\in \mathbb{R}^{N_x\times N_{train}}$, where $N_{train}$ is the number of such states, and the associated targets are collected into the matrix $\textbf{Y}\in \mathbb{R}^{N_y\times N_{train}}$. Finally, the matrix $\textbf{W}\in\mathbb{R}^{N_y \times N_x}$ is obtained as the solution to a least squares minimization problem between $\textbf{WS}$ and $\textbf{Y}$. 
+In particular, a common algorithm for a regularized solution to the least squares problem is ridge regression. In this case, if $\beta\in \mathbb{R}^+$ is the L2 regularization factor chosen by model selection, the readout weights are computed in closed form as follows:
+
+\begin{equation}\label{eq:w}
+    \textbf{W}=\textbf{Y}\textbf{S}^T(\textbf{S}\textbf{S}^T+\beta\textbf{I})^{-1}
+\end{equation}
+
+Instead, the \texttt{IncFed} algorithm computes, for each client \textit{c}, the matrices $\textbf{A}_c\in \mathbb{R}^{N_y\times N_x}$ and $\textbf{B}_c\in \mathbb{R}^{N_x\times N_x}$ as follow:
+
+\begin{equation}\label{eq:ab}
+    \textbf{A}_c=\textbf{Y}_c\textbf{S}_c^T\text{\quad and\quad}\textbf{B}_c=\textbf{S}_c\textbf{S}_c^T
+\end{equation}
+
+The matrices $\textbf{A}_c$ and $\textbf{B}_c$ are sent to the server where they get summed as in the following equations:
+
+\begin{equation}
+    \textbf{A}=\sum_{c\in\mathcal{C}}\textbf{A}_c\text{\quad and\quad}\textbf{B}=\sum_{c\in\mathcal{C}}\textbf{B}_c
+\end{equation}
+
+After the summed matrices are computed, the server can compute the optimal readout weights $\textbf{W}$ in closed-form as follows:
+
+\begin{equation}\label{eq:w_ab}
+    \textbf{W}=\textbf{A}(\textbf{B}+\beta\textbf{I})^{-1}
+\end{equation}
+
+The matrices \ref{eq:w} and \ref{eq:w_ab} are mathematically equivalent.\\
+
+In \texttt{IncFed}, the number of floating-point values that get transferred from each client to the server is $N_x^2+N_yN_x$.
+
+\section{Importance vector}
+
+The Fisher information matrix $\mathcal{F}$ was used successfully for parameter pruning in neural networks \cite{lecun1989optimal}. This gives us a straightforward way to save bandwidth, evaluating the importance measure of the parameters $\textbf{W}$.\\
+
+Let's consider a single instance $({\bf S}_i, {\bf Y}_i)$ of states \textbf{S} and targets \textbf{Y}. The linear model is $f(\textbf{W})=\textbf{WS}_i+\epsilon$, where $\epsilon$ is an error sampled by a normal distribution. Assuming the variance $\sigma^2$ is known, the log-likelihood of the data is given by the density:
+
+\begin{equation}
+    \mathcal{L}(\textbf{W})=-\frac{1}{2}\log(2\pi\sigma^2)-\frac{-(\textbf{Y}_i-\textbf{WS}_i)^2}{2\sigma^2}
+\end{equation}
+
+The Fisher information matrix is the expected value of the negative of the Hessian matrix of $\mathcal{L}(\textbf{W})$. So, we compute the gradient:
+
+\begin{equation}
+    \mathcal{J}(\textbf{W})=\nabla_{\textbf{W}} \frac{-(\textbf{Y}_i-\textbf{WS}_i)^2}{2\sigma^2}=\frac{\textbf{Y}_i\textbf{S}_i^T}{\sigma^2}-\frac{\textbf{WS}_i\textbf{S}_i^T}{\sigma^2}=\frac{(\textbf{Y}_i-\textbf{WS}_i)\textbf{S}_i^T}{\sigma^2}
+\end{equation}
+
+Now, we compute the hessian:
+
+\begin{equation}
+    \mathcal{H}(\textbf{W})=\frac{\partial}{\partial\textbf{W}}\frac{(\textbf{Y}_i-\textbf{WS}_i)\textbf{S}_i^T}{\sigma^2}=\frac{\partial\textbf{Y}_i\textbf{S}_i^T}{\partial\textbf{W}}-\frac{\partial\textbf{WS}_i\textbf{S}_i^T}{\partial\textbf{W}}=-\frac{\textbf{S}_i\textbf{S}_i^T}{\sigma^2}
+\end{equation}
+
+so, the Fisher information matrix is:
+
+\begin{equation}
+    \mathcal{F}(\textbf{W})=-\mathbb{E}\left[ \mathcal{H}(\textbf{W}) \right]=\frac{\textbf{S}_i\textbf{S}_i^T}{\sigma^2}
+\end{equation}
+
+Because gradients and Hessians are additive, if $n$ data items are observed, the individual Fisher information matrices are simply summed:
+
+\begin{equation}
+    \mathcal{F}(\textbf{W})=\frac{\sum_i{\textbf{S}_i\textbf{S}_i^T}}{\sigma^2}
+\end{equation}
+
+and, if $\textbf{S}^T=(\textbf{S}_1, \textbf{S}_2,\dots,\textbf{S}_n)$, $\mathcal{F}$ can be written as:
+
+\begin{equation}
+    \mathcal{F}(\textbf{W})=\frac{\textbf{S}\textbf{S}^T}{\sigma^2}
+\end{equation}
+
+The Fisher information matrix is used in classification problems with gradient optimization methods with probability density functions.\\
+
+Instead, our problem is least squares solved by ridge regression and we need to translate the concept of Fisher information matrix. Since we are not dealing with density functions and that in the federated scenario we are interested in ranking the neurons, we can ignore the $\sigma^2$ value. The Fisher information matrix is reformulated as:
+
+\begin{equation}\label{eq:sst}
+    \mathcal{F}(\textbf{W})=\textbf{SS}^T\in\mathbb{R}^{N_x\times N_x}
+\end{equation}
+
+The importance vector, used for the ranking of the neurons, is the sum over one of the axis of $\mathcal{F}$, and it is computed as:
+
+\begin{equation}\label{eq:imp_vec}
+    \mathcal{I}(\textbf{W})=\mathcal{F}(\textbf{W})\mathbbm{\bf 1}_{N_x}=\textbf{SS}^T\mathbbm{\bf 1}_{N_x}\in\mathbb{R}^{N_x}
+\end{equation}
+
+where $\mathbbm{\bf 1}^T_{N_x}=(1,1,\dots,1)\in\mathbb{R}^{N_x}$ is the 1-vector of size $N_x$, and $\mathcal{I}$ represents how much each neuron is correlated with all the others neurons.\\
+
+Also, if we consider $\mathcal{S}$ as the set of the top $k$ neurons, we define the indicator function $\mathbbm{1}_{\mathcal{S}}:\mathbb{R}\rightarrow{\{0,1\}}$ that takes in input the importance, and returns in output the masked value. Such function is defined as:
+
+\begin{equation}
+    \mathbbm{1}_{\mathcal{S}}(x)=
+    \left\{\begin{matrix}
+    1 & \text{if }x\in\mathcal{S}\\ 
+    0 & \text{otherwise}
+    \end{matrix}\right.
+\end{equation}
+
+If we consider a vector $\textbf{X}\in\mathbb{R}^{N_x}$, with $\mathbbm{1}_{\mathcal{S}}(\textbf{X})$ means the element-wise application of the function $\mathbbm{1}_{\mathcal{S}}(\cdot)$.
+
+
+\section{Partial Incremental Federated Learning}
+
+\textit{Partial Incremental Federated Learning} (\texttt{Partial IncFed}) is an algorithm that uses part of the $\textbf{A}_c$ and $\textbf{B}_c$ matrices computed by \texttt{IncFed}, reducing the amount of data transfers.\\
+
+The \texttt{Partial IncFed} algorithm computes, for each client \textit{c}, the matrices $\textbf{A}_c$ and $\textbf{B}_c$ as in Eq. \ref{eq:ab} of \texttt{IncFed}. We notice that $\textbf{B}_c$ is the hessian, so we consider it as the Fisher information as in Eq. \ref{eq:sst}.
+
+\begin{equation}
+    \mathcal{F}_c(\mathbf{W}_c)=\textbf{S}_c\textbf{S}_c^T=\textbf{B}_c
+\end{equation}
+
+In order to get the parameters importance, we compute for each client the importance vector as in Eq. \ref{eq:imp_vec}:
+
+\begin{equation}
+    \mathcal{I}_c(\textbf{W}_c)=\mathcal{F}_c(\textbf{W}_c)\mathbbm{\bf 1}_{N_x}=\textbf{B}_c\mathbbm{\bf 1}_{N_x}
+\end{equation}
+
+At this point, if $\mathcal{S}_c$ is the set of the most important $k$ neurons, each client \textit{c} computes $\textbf{A}_c^*$ and $\textbf{B}_c^*$ as follows:
+
+\begin{equation}\label{eq:ab_select}
+    \textbf{A}_c^*=\textbf{A}_c\times\mathbbm{1}_{\mathcal{S}_c}\text{\quad and\quad}\textbf{B}_c^*=\textbf{B}_c\times[\mathbbm{\bf I}_{N_x}\times(\mathbbm{\bf 1}_{N_x}\otimes\mathbbm{1}_{\mathcal{S}_c})]
+\end{equation}
+
+where $\mathbbm{1}_{\mathcal{S}_c}$ is used instead of $\mathbbm{1}_{\mathcal{S}_c}(\mathcal{I}_c(\textbf{W}_c))$ for the
+sake of conciseness, $\mathbbm{\bf I}_{N_x}$ is the identity matrix with size $N_x$ and $\otimes$ is the outer product.\\
+
+The matrices $\textbf{A}_c^*$ and $\textbf{B}_c^*$ are sparse with a certain number of non-zero elements and the rest are 0s. The indices and values of non-zero elements are sent to the server, where they are summed as sparse matrices like in the following equations:
+
+\begin{equation}
+    \textbf{A}=\sum_{c\in\mathcal{C}}\textbf{A}_c^*\text{\quad and\quad}\textbf{B}=\sum_{c\in\mathcal{C}}\textbf{B}_c^*
+\end{equation}
+
+The summed matrices are used by the server to compute the optimal readout weights $\textbf{W}$ in closed-form as in Eq. \ref{eq:w_ab}.\\
+
+In \texttt{Partial IncFed}, the number of floating-point values that get transferred from each client to the server is $k(1+N_x)$. If we consider $k=N_x/2$, \texttt{Partial IncFed} reduces the client floating-point values transmission by $\sim60\%$ compared to \texttt{IncFed}.
+
+\section{Experiments}
+
+The aim of the experiments, is to measure and compare the performances of three different federation strategies: \texttt{IncFed}, \texttt{Partial IncFed} and \texttt{Random}. The \texttt{Random} strategy consists of selecting \textit{k} random neurons indices and apply Eq. \ref{eq:ab_select}. In the \texttt{Partial IncFed} we use a parameter $\alpha\in[0,1]$ in order to consider $\alpha\times\textit{k}$ important neurons, and $(1-\alpha)\times\textit{k}$ random selected neurons for exploration purposes.\\
+
+For our experiments we used the WESAD dataset with 8 features and 4 classes as used in Bacciu et al. \cite{bacciu2021federated}.\\
+
+We use four degrees of availability of clients during federated learning: 25\% (3 clients), 50\% (5 clients), 75\% (7 clients) and 100\% (9 clients) of training subjects $\mathcal{C}$. The number of clients corresponds to the number of training subjects and the validation (3 clients) and test (3 clients) sets remains fixed in all experiments. The number of neurons to be considered are $k=(150/\left|\mathcal{C}\right|/100)\times N_x$. The best-performing hyper-parameters, which are selected by evaluating on the validation set, are shared across all models in the federation. Moreover, the models also share the same $\textbf{W}_{in}$ and $\widehat{\textbf{W}}$ matrices.\\
+
+{\renewcommand{\arraystretch}{1.5}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c|c|}
+        \hline
+        N_x & \alpha \\ \hline\hline
+        [100, 250, 500] & [0.3, 0.6, 0.8, 1] \\ \hline
+    \end{tabular}
+    \caption{Hyper-parameter ranges explored for the WESAD dataset.}
+    \label{tab:partialincfed_search}
+\end{table}
+
+
+{\renewcommand{\arraystretch}{1.5}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c||c|c|}
+        \hline
+         & \texttt{IncFed} & \texttt{Partial IncFed} \\ \hline\hline
+        N_x & 500 & 500 \\ \hline
+        \alpha & - & 0.3 \\ \hline
+        \lambda & 1e-6 & 1e-6 \\ \hline
+        Leaking rate & 1.0 & 1.0 \\ \hline
+        Input scaling & 0.9 & 0.9 \\ \hline
+        Spectral radius & 0.99 & 0.99 \\ \hline
+    \end{tabular}
+    \caption{Models parameters.}
+    \label{tab:partialincfed_search}
+\end{table}
+
+
+{\renewcommand{\arraystretch}{1.5}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{|c||c|c|c|}
+        \hline
+        Training users & \texttt{IncFed} & \texttt{Partial IncFed} & \texttt{Random} \\ \hline\hline
+        
+        100\% & 0.7801\pm 0.77 & {\bf 0.8128}\pm{\bf 0.70} & 0.8084\pm 0.74 \\ \hline
+        75\% & 0.7504\pm 0.81 & {\bf 0.8108}\pm{\bf 0.76} & 0.7887\pm 0.86 \\ \hline
+        50\% & 0.7223\pm 0.80 & {\bf 0.7642}\pm{\bf 0.93} & 0.7600\pm 0.95 \\ \hline
+        25\% & 0.7093\pm 0.89 & {\bf 0.7565}\pm{\bf 0.96} & 0.7480\pm 1.01 \\ \hline
+    \end{tabular}
+    \caption{Results of the experiments on WESAD. The values reported are the test accuracy and the standard deviation of the errors.}
+    \label{tab:partialincfed_results}
+\end{table}
+
+The preliminary results in Table \ref{tab:partialincfed_results} show us how \texttt{Partial IncFed} produces regularization effects that lead to a better generalization, obtaining a test accuracy greater than the one of \texttt{IncFed} and keeping, at the same time, a significative reduction of the cost of communication among clients and server.

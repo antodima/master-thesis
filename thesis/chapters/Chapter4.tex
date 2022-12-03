@@ -1,0 +1,108 @@
+\chapter{Discriminator for Anomalous Client detection}\label{chapter:disc}
+
+A common need when analyzing real-world data-sets is determining which instances stand out as being dissimilar to all others. Such instances are known as \textit{anomalies}, and the goal of \textit{anomaly detection} (also known as outlier detection) is to determine all such instances in a data-driven fashion \cite{chandola2007outlier}. Anomalies can be caused by errors in the data but sometimes are indicative of a new, previously unknown, underlying process. In the broader field of machine learning, the recent years have witnessed a proliferation of deep neural networks, with unprecedented results across various application domains. Deep learning (DL) is a subset of ML that achieves good performance and flexibility by learning to represent the data as a nested hierarchy of concepts within layers of the neural network. \\
+
+Anomalies are also referred to as abnormalities, deviants, or outliers in the data mining and statistics literature \cite{aggarwal2017introduction}. Despite the substantial advances made by DL methods in many ML problems, there is a relative scarcity of DL approaches for anomaly detection \cite{chalapathy2019deep}. \\
+
+Anomalies can be broadly classified into three types: \textit{point anomalies}, \textit{contextual anomalies} and \textit{collective anomalies}.
+
+\begin{enumerate}
+    \item \textit{Point anomaly}: represents a point which stands on a low-density region of the observed distribution;
+    
+    \item \textit{Contextual anomaly}: represents an observation which is not a point anomaly but it is anomalous with respect to the surrounding context in the sequence of observations;
+    
+    \item \textit{Collective anomalies}: are anomalies that arise from the observations of the distributions across multiple data streams.
+\end{enumerate}
+
+The type of anomaly considered in this Work refers to \textit{point anomalies}. Specifically, we want to detect anomalous client at a certain time. This detection has to be done server side, due to privacy concerns and low computational power at edge devices. \\
+
+There are a lot of anomaly detection topics like: intrusion detection, fraud detection, banking fraud, malware detection, IoT Big Data anomaly detection, industrial anomalies detection, etc \cite{chalapathy2019deep}. Among them, we can't find something related to "anomalous machine learning model" detection. \\
+
+In this chapter is described the approach used to identify anomalous clients during the FL process. The scope is to detect/discriminate and discard those clients, in order to not considering them during the process of an FL algorithm. In this way the aggregated model will not be affected by anomalous clients. \\
+
+Our approach is to train a simple feedforward neural network on the gradients of clients computed at each backpropagation step, in order to distinguish between: client trained on noisy input and client trained on plain input. The reason of using the clients' gradients comes from the fact that those are the only things that clients share with the server. The gradient taken into account is computed making a subtraction between the weights at time $t$ and at time $t-1$. Concerning the implementation with Tensorflow-Federated, the discriminator is added into the \hltexttt{client\_update\_fn} and following the same structure and components described in Chapter \ref{chapter:fedcurv}. \\
+
+The discriminator model is made with the Tensorflow\footnote{\url{https://www.tensorflow.org/}} framework with two \hltexttt{Dense}\footnote{\url{https://www.tensorflow.org/api_docs/python/tf/keras/layers/Dense}} layers, two \hltexttt{Dropout}\footnote{\url{https://www.tensorflow.org/api_docs/python/tf/keras/layers/Dropout}} layer (one after each \hltexttt{Dense} layer) and a \hltexttt{Dense} output layer with \hltexttt{Sigmoid} activation function. \\
+
+The \texttt{FedAvg} and \texttt{FedCurv} algorithms with the discriminator (\texttt{Disc}) are described, respectively, in the Alg. \ref{alg:fedavg+disc} and \ref{alg:fedcurv+disc}.
+
+
+\algrenewcommand\algorithmicfunction{}
+\algrenewcommand\textproc{}
+\begin{algorithm}[H]
+\caption{\texttt{FedAvg+Disc}. The $K$ clients are indexed by $k$; $B$ is the local minibatch size, $E$ is the number of local epochs, and $\eta$ is the learning rate.}\label{alg:fedavg+disc}
+\begin{algorithmic}[1]
+\Function{\textbf{ServerUpdate}}{}
+    \State $w_0\leftarrow$ initialize()
+    \State $disc\leftarrow \text{(load $\texttt{Disc}$ model)}$
+    \For{\texttt{each round $t=1,2,\dots$}}
+        \State $m\leftarrow \max(C\cdot K, 1)$
+        \State $S_t\leftarrow \text{(random set of $m$ clients)}$
+        \For{\texttt{each client $k\in S_t$}}
+            \State $w_{t+1}^k\leftarrow$ \text{ClientUpdate($k$, $w_t$)}
+            \State $valid\leftarrow disc(w_t^k-w_{t+1}^k)$
+            \If{not $valid$}
+                $w_{t+1}^k\leftarrow w_t^k$
+            \EndIf
+        \EndFor
+        \State $w_{t+1}\leftarrow \sum_{k=1}^K\frac{n_k}{n}w_{t+1}^k$
+    \EndFor
+\EndFunction
+\\
+\Function{\textbf{ClientUpdate}}{$k$, $w$}
+    \State $\mathcal{B}\leftarrow \text{(split $\mathcal{P}_k$ into batches of size $B$)}$
+    \For{\texttt{$i$ from $1$ to $E$}}
+        \For{\text{batch $b\in \mathcal{B}$}}
+            \State $w\leftarrow w-\eta\nabla\ell(w;b)$
+        \EndFor
+    \EndFor
+    \Return $w$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+
+\algrenewcommand\algorithmicfunction{}
+\algrenewcommand\textproc{}
+\begin{algorithm}[H]
+\caption{\texttt{FedCurv+Disc}. The $K$ clients are indexed by $k$; $B$ is the local minibatch size, $E$ is the number of local epochs, and $\eta$ is the learning rate. Each client has the reservoir parameter $\textbf{W}_{in}$ and $\widehat{\textbf{W}}$, $\alpha$ is the leaky rate, $N_y$ is the output dimension and $N_x$ is the number of reservoir neurons.}\label{alg:fedcurv+disc}
+\begin{algorithmic}[1]
+\Function{\textbf{ServerUpdate}}{}
+    \State let $w_0, u_0, v_0\in \mathbb{R}^{N_y\times N_x}$
+    \For{\texttt{each round $t=1,2,\dots$}}
+        \State $m\leftarrow \max(C\cdot K, 1)$
+        \State $S_t\leftarrow \text{(random set of $m$ clients)}$
+        \For{\texttt{each client $k\in S_t$}}
+            \State $w_{t+1}^k, u_{t+1}^k, v_{t+1}^k\leftarrow$ \text{ClientUpdate($k$, $w_t$, $u_t$, $v_t$)}
+            \State $valid\leftarrow disc(w_t^k-w_{t+1}^k)$
+            \If{not $valid$}
+                $w_{t+1}^k\leftarrow w_t^k$
+            \EndIf
+        \EndFor
+        \State $w_{t+1}\leftarrow \sum_{k=1}^K\frac{n_k}{n}w_{t+1}^k$
+        \State $u_{t+1}\leftarrow \sum_{k=1}^K u_{t+1}^k$
+        \State $v_{t+1}\leftarrow \sum_{k=1}^K v_{t+1}^k$
+    \EndFor
+\EndFunction
+\\
+\Function{\textbf{ClientUpdate}}{$k$, $w$, $u$, $v$}
+    \State let $u_{local}, v_{local}\in \mathbb{R}^{N_y\times N_x}$
+    \State $\mathcal{B}\leftarrow \text{(split $\mathcal{P}_k$ into batches of size $B$)}$
+    \For{\texttt{$i$ from $1$ to $E$}}
+        \For{\text{batch $b\in \mathcal{B}$}}
+            \State $\textbf{x}(t)=(1-\alpha)\textbf{x}(t-1)+\alpha \tanh(\textbf{W}_{in}b+\widehat{\textbf{W}}\textbf{x}(t-1))$
+            \State $\textbf{y}(t)\leftarrow sigmoid(w\textbf{x}(t))$
+            \State $\nabla\mathcal{LL}_b\leftarrow\frac{\partial log(softmax(\textbf{y}(t)))}{\partial w}$ \Comment{Log-likelihood gradient}
+            \State $\mathcal{D}_b\leftarrow\frac{(\nabla\mathcal{LL}_b)^{2}}{length(b)}$ \Comment{Diagonal of the Fisher matrix}
+            \State $u_b\leftarrow\mathcal{D}_b$
+            \State $v_b\leftarrow\mathcal{D}_b\times w$
+            \State $u_{local} \leftarrow u-u_b$
+            \State $v_{local} \leftarrow v-v_b$
+            \State $\lambda\leftarrow sum(w^2\times u_{local}-2\times w\times v_{local})$ \Comment{Penalty term}
+            \State $w\leftarrow w-\eta\nabla[\ell(w;b)+\lambda]$
+        \EndFor
+    \EndFor
+    \Return $w, u_{local}, v_{local}$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
